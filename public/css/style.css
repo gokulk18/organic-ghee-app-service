@@ -1,9 +1,8 @@
 :root{
-    --primary-color:#A82c48;
+    --primary-color:#198754;
     --secondary-color:#43121d;
     --white-color:#fff;
     --text-color:#555;
-    
 }
 .primary-color{
     color:var(--primary-color)
