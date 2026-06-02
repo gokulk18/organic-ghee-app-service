@@ -54,29 +54,76 @@ route.get("/foods/:page", async (req, res) => {
     })
 })
 route.post("/saveRegistration", async (req, res) => {
-    const data = await User.create(req.body)
-    res.render("login",{
-        newRegister:true
-    })
-})
+    try {
+        const container = req.app.locals.cosmosContainer;
+        if (container) {
+            console.log("Saving user to Cosmos DB NoSQL Container...");
+            // Generate a unique ID (required by Cosmos DB). We will use email as partition key / ID.
+            const newUser = {
+                id: req.body.email, // using email as ID
+                name: req.body.name,
+                email: req.body.email,
+                phone: req.body.phone,
+                password: req.body.password,
+                address: req.body.address,
+                type: req.body.type || "normal"
+            };
+            
+            await container.items.create(newUser);
+            console.log("Successfully stored registration data in Cosmos DB NoSQL!");
+        } else {
+            console.log("Cosmos DB NoSQL not configured. Falling back to MongoDB/Mongoose...");
+            await User.create(req.body);
+        }
+        
+        res.render("login", {
+            newRegister: true
+        });
+    } catch (err) {
+        console.error("Error during registration save:", err.message);
+        res.status(500).send("Database registration failed: " + err.message);
+    }
+});
 
 route.post("/loginUser", async (req, res) => {
-    const data = await User.findOne(req.body);
-    console.log(data);
+    try {
+        let data = null;
+        const container = req.app.locals.cosmosContainer;
+        
+        if (container) {
+            console.log("Looking up user in Cosmos DB NoSQL...");
+            const querySpec = {
+                query: "SELECT * FROM c WHERE c.email = @email AND c.password = @password",
+                parameters: [
+                    { name: "@email", value: req.body.email },
+                    { name: "@password", value: req.body.password }
+                ]
+            };
+            const { resources } = await container.items.query(querySpec).fetchAll();
+            data = resources.length > 0 ? resources[0] : null;
+        } else {
+            console.log("Cosmos DB NoSQL not configured. Falling back to MongoDB/Mongoose lookup...");
+            data = await User.findOne(req.body);
+        }
+        
+        console.log(data);
 
-    if (data == null) {
-        console.log("invalid passward or email");
-        res.render("login", {
-            invalid: true,
-            email: req.body.email
-        })
+        if (data == null) {
+            console.log("invalid password or email");
+            res.render("login", {
+                invalid: true,
+                email: req.body.email
+            });
+        } else {
+            req.session.loginUser = data;
+            console.log('login user name : ' + req.session.loginUser.name);
+            res.redirect("/dashboard");
+        }
+    } catch (err) {
+        console.error("Error during login lookup:", err.message);
+        res.status(500).send("Database lookup failed: " + err.message);
     }
-    else {
-        req.session.loginUser = data;
-        console.log('login user name : ' + req.session.loginUser.name);
-        res.redirect("/dashboard");
-    }
-})
+});
 
 route.get("/dashboard", (req, res) => {
     if (req.session.loginUser) {
